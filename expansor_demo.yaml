@@ -1,0 +1,121 @@
+version: "1.0"
+author: "Alberto Cozer (@albertocozer)"
+expansor:
+  name: "Stock Signal Report Generator"
+  description: "Generates a comprehensive stock signal report based on technical indicators and market data."
+intent: "stock_signal_report"
+source_prompt: "${USER_PROMPT}"
+
+universe:
+  tickers:
+    required: true
+    value: []              # e.g., ["MSI"]
+    on_blank_trigger_agent: "entity_resolver"
+  market:
+    required: false
+    value: "US"
+
+data_inputs:
+  price_bars:
+    required: true
+    value: null            # expected: OHLCV time series
+    frequency:
+      required: true
+      value: "1d"          # "1d" | "1h" | "15m"
+    lookback:
+      required: true
+      value: "2y"          # e.g., "90d", "1y", "2y"
+    timezone:
+      required: false
+      value: "America/New_York"
+    on_blank_trigger_agent: "market_data_fetcher"
+
+  corporate_actions:
+    required: true
+    value: null            # splits, dividends for adjustment
+    on_blank_trigger_agent: "corporate_actions_fetcher"
+
+normalization:
+  adjust_prices:
+    required: true
+    value: "split_and_dividend_adjusted"
+  missing_data_policy:
+    required: true
+    value: "drop_or_forward_fill_with_flags"
+  outlier_policy:
+    required: true
+    value: "winsorize_with_audit_log"
+
+indicators:
+  mandatory:
+    rsi_14:
+      required: true
+      params: { period: 14, price: "close" }
+    macd:
+      required: true
+      params: { fast: 12, slow: 26, signal: 9, price: "close" }
+    sma:
+      required: true
+      params: { windows: [20, 50, 200], price: "close" }
+    atr_14:
+      required: true
+      params: { period: 14 }
+    volume_profile:
+      required: true
+      params: { window: 60, metric: "relative_volume" }
+
+  optional:
+    bollinger_bands:
+      required: false
+      params: { period: 20, stdev: 2, price: "close" }
+
+signal_logic:
+  thresholds:
+    required: true
+    value:
+      rsi_oversold: 30
+      rsi_overbought: 70
+      macd_cross: "signal_line"
+      sma_trend:
+        golden_cross: [50, 200]
+        death_cross: [50, 200]
+  scoring:
+    required: true
+    value:
+      weights:
+        trend: 0.35
+        momentum: 0.35
+        volatility: 0.15
+        volume: 0.15
+      confidence_floor: 0.60
+
+outputs:
+  report:
+    required: true
+    format:
+      required: true
+      value: "markdown"
+    sections:
+      required: true
+      value: ["summary", "signals", "evidence", "risk", "next_steps"]
+  artifacts:
+    required: false
+    value: ["tables", "charts"]
+  recommendation_policy:
+    required: true
+    value: "no_trade_advice_only_signal_summary"
+
+quality_loops:
+  checks:
+    required: true
+    value:
+      - "schema_complete"
+      - "data_coverage_min_95pct"
+      - "indicator_reproducibility"
+      - "output_section_presence"
+  reinforcement:
+    required: true
+    value:
+      score_dimensions: ["correctness", "completeness", "consistency"]
+      feedback_store: "prompt_spec_registry"
+      on_failure_trigger_agent: "spec_repair_agent"
